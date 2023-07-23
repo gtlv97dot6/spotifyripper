@@ -1,6 +1,7 @@
 #!/bin/bash
 
 script_dir=$(dirname $(readlink -f $0))
+buffer_file=tmp.mp3
 
 if [[ -z $1 ]]; then
   musicdir="."
@@ -35,19 +36,20 @@ pactl move-sink-input $spotify spotify
 $script_dir/notify.sh 2>/dev/null | while read line
 do
   if [[ $line == "__SWITCH__" ]]; then
-    killall oggenc 2>/dev/null
+    killall ffmpeg 2>/dev/null
     killall parec 2>/dev/null
 
     if [[ -n $title ]]; then
-      vorbiscomment -a tmp.ogg -t "ARTIST=$artist" -t "ALBUM=$album"\
-          -t "TITLE=$title" -t "tracknumber=$tracknumber"
       # Sanitize filenames
       saveto="$musicdir/${artist//\/ /}/${album//\/ /}"
       echo "Saved song $title by $artist to $saveto/${title//\/ /}.ogg"
       if [[ ! -a $saveto ]]; then
         mkdir -p "$saveto"
       fi
-      mv tmp.ogg "$saveto/${title//\/ /}.ogg"
+      ffmpeg -i $buffer_file -metadata "artist=$artist" -metadata "album=$album" \
+            -metadata "title=$title" -metadata "tracknumber=$tracknumber" \
+            "$saveto/${title//\/ /}.mp3"
+      rm $buffer_file
       if [[ -s cover.jpg ]] && [[ ! -a "$saveto/cover.jpg" ]]; then
         mv cover.jpg "$saveto/cover.jpg"
       fi
@@ -58,9 +60,9 @@ do
       rm -f cover.jpg
     fi
     echo "RECORDING"
-    parec -d spotify.monitor | oggenc -b 192 -o tmp.ogg --raw - 2>/dev/null\
+    parec -d spotify.monitor | ffmpeg -y -ac 2 -f s16le -i pipe: -b:a 320k $buffer_file \
       &disown
-    trap 'pactl move-sink-input $spotify $pasink && killall oggenc && killall parec' EXIT
+    trap 'pactl move-sink-input $spotify $pasink && killall ffmpeg && killall parec' EXIT
 
   else
     variant=$(echo "$line"|cut -d= -f1)
